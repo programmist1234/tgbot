@@ -83,11 +83,155 @@
     <button id="checkout">Оформить заказ</button>
 
     <script>
-        // Ваш JavaScript код
-        const tg = WebApp;
+         const tg = window.Telegram.WebApp;
         tg.expand();
+        tg.enableClosingConfirmation();
         
-        // ... остальной код ...
+        // Установите цветовую схему WebApp
+        tg.setHeaderColor('#0088cc');
+        tg.setBackgroundColor('#f5f5f5');
+        
+        let cart = {};
+        const API_URL = 'https://ваш-бэкенд.ngrok.io'; // Замените на ваш URL
+        
+        // Загрузка товаров
+        async function loadProducts() {
+            try {
+                const response = await fetch(`${API_URL}/api/products`);
+                const products = await response.json();
+                renderProducts(products);
+            } catch (error) {
+                showError("Ошибка загрузки товаров");
+            }
+        }
+        
+        // Отображение товаров
+        function renderProducts(products) {
+            const container = document.getElementById('products');
+            container.innerHTML = '';
+            
+            products.forEach(product => {
+                const productEl = document.createElement('div');
+                productEl.className = 'product-card fade-in';
+                productEl.innerHTML = `
+                    ${product.image ? 
+                        `<img src="${product.image}" class="product-image" alt="${product.name}">` : 
+                        `<div class="product-image" style="background: #e0e0e0;"></div>`
+                    }
+                    <div class="product-info">
+                        <h3 class="product-title">${product.name}</h3>
+                        <p class="product-price">${product.price} ₽</p>
+                        <div class="quantity-controls">
+                            <button class="quantity-btn" onclick="changeQuantity(${product.id}, -1)">−</button>
+                            <span class="quantity-display" id="qty-${product.id}">0</span>
+                            <button class="quantity-btn" onclick="changeQuantity(${product.id}, 1)">+</button>
+                        </div>
+                    </div>
+                `;
+                container.appendChild(productEl);
+            });
+        }
+        
+        // Управление количеством
+        window.changeQuantity = function(productId, delta) {
+            if (!cart[productId]) cart[productId] = 0;
+            cart[productId] += delta;
+            
+            if (cart[productId] < 0) cart[productId] = 0;
+            
+            document.getElementById(`qty-${productId}`).textContent = cart[productId];
+            updateCart();
+        };
+        
+        // Обновление корзины
+        async function updateCart() {
+            try {
+                const response = await fetch(`${API_URL}/api/products`);
+                const products = await response.json();
+                
+                const cartItemsEl = document.getElementById('cart-items');
+                let total = 0;
+                let itemsHtml = '';
+                
+                products.forEach(product => {
+                    if (cart[product.id] > 0) {
+                        const sum = product.price * cart[product.id];
+                        total += sum;
+                        itemsHtml += `
+                            <div class="cart-item">
+                                <span class="cart-item-name">${product.name} × ${cart[product.id]}</span>
+                                <span class="cart-item-price">${sum} ₽</span>
+                            </div>
+                        `;
+                    }
+                });
+                
+                cartItemsEl.innerHTML = itemsHtml || '<div class="empty-cart">Корзина пуста</div>';
+                document.getElementById('cart-total').textContent = `Итого: ${total} ₽`;
+                
+                return total;
+            } catch (error) {
+                showError("Ошибка обновления корзины");
+                return 0;
+            }
+        }
+        
+        // Оформление заказа
+        document.getElementById('checkout').addEventListener('click', async () => {
+            const name = document.getElementById('name').value.trim();
+            const phone = document.getElementById('phone').value.trim();
+            const address = document.getElementById('address').value.trim();
+            
+            // Валидация
+            if (!name || !phone || !address) {
+                showError("Заполните все поля");
+                return;
+            }
+            
+            const total = await updateCart();
+            if (total <= 0) {
+                showError("Добавьте товары в корзину");
+                return;
+            }
+            
+            try {
+                tg.MainButton.showProgress();
+                
+                const response = await fetch(`${API_URL}/api/order`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        user_id: tg.initDataUnsafe.user?.id,
+                        username: name,
+                        phone: phone,
+                        address: address,
+                        products: cart,
+                        total: total
+                    })
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    tg.showAlert("Ваш заказ успешно оформлен!");
+                    tg.close();
+                } else {
+                    showError(result.error || "Ошибка оформления заказа");
+                }
+            } catch (error) {
+                showError("Ошибка соединения");
+            } finally {
+                tg.MainButton.hideProgress();
+            }
+        });
+        
+        // Показать ошибку
+        function showError(message) {
+            tg.showAlert(message);
+        }
+        
+        // Инициализация
+        loadProducts();
     </script>
 </body>
 </html>
