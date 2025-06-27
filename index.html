@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Магазин</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <style>
+        body { font-family: Arial; padding: 15px; }
+        .product { border: 1px solid #eee; padding: 10px; margin-bottom: 10px; }
+        #cart { margin: 20px 0; padding: 10px; background: #f5f5f5; }
+    </style>
+</head>
+<body>
+    <h2>Выберите товары</h2>
+    <div id="products"></div>
+    
+    <div id="cart">
+        <h3>Ваш заказ</h3>
+        <div id="cart-items"></div>
+        <div id="total">Итого: 0 ₽</div>
+    </div>
+    
+    <h3>Данные для доставки</h3>
+    <input type="text" id="name" placeholder="Ваше имя" required><br><br>
+    <input type="tel" id="phone" placeholder="Телефон" required><br><br>
+    <textarea id="address" placeholder="Адрес" required rows="3"></textarea><br><br>
+    
+    <button id="checkout">Оформить заказ</button>
+
+    <script>
+        const tg = window.Telegram.WebApp;
+        tg.expand();
+        
+        // URL вашего локального API через туннель (замените на ваш)
+        const API_URL = 'https://ваш-туннель.ngrok.io';
+        
+        let cart = {};
+        
+        async function loadProducts() {
+            try {
+                const response = await fetch(`${API_URL}/api/products`);
+                const products = await response.json();
+                
+                const container = document.getElementById('products');
+                products.forEach(product => {
+                    const div = document.createElement('div');
+                    div.className = 'product';
+                    div.innerHTML = `
+                        <h3>${product.name}</h3>
+                        <p>${product.price} ₽</p>
+                        <button onclick="addToCart(${product.id})">+</button>
+                        <span id="qty-${product.id}">0</span>
+                        <button onclick="removeFromCart(${product.id})">-</button>
+                    `;
+                    container.appendChild(div);
+                });
+            } catch (e) {
+                alert("Ошибка загрузки товаров");
+            }
+        }
+        
+        window.addToCart = function(id) {
+            cart[id] = (cart[id] || 0) + 1;
+            updateCart();
+        };
+        
+        window.removeFromCart = function(id) {
+            if (cart[id] > 0) cart[id]--;
+            updateCart();
+        };
+        
+        async function updateCart() {
+            const products = await (await fetch(`${API_URL}/api/products`)).json();
+            let total = 0;
+            let itemsHtml = '';
+            
+            products.forEach(p => {
+                if (cart[p.id] > 0) {
+                    const sum = p.price * cart[p.id];
+                    itemsHtml += `${p.name} x${cart[p.id]} = ${sum} ₽<br>`;
+                    total += sum;
+                    document.getElementById(`qty-${p.id}`).textContent = cart[p.id];
+                }
+            });
+            
+            document.getElementById('cart-items').innerHTML = itemsHtml || 'Корзина пуста';
+            document.getElementById('total').textContent = `Итого: ${total} ₽`;
+            return total;
+        }
+        
+        document.getElementById('checkout').addEventListener('click', async () => {
+            const name = document.getElementById('name').value.trim();
+            const phone = document.getElementById('phone').value.trim();
+            const address = document.getElementById('address').value.trim();
+            
+            if (!name || !phone || !address) {
+                alert("Заполните все поля!");
+                return;
+            }
+            
+            const total = await updateCart();
+            if (total === 0) {
+                alert("Добавьте товары в корзину!");
+                return;
+            }
+            
+            try {
+                const response = await fetch(`${API_URL}/api/order`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        user_id: tg.initDataUnsafe.user?.id,
+                        username: name,
+                        phone: phone,
+                        address: address,
+                        products: cart,
+                        total: total
+                    })
+                });
+                
+                const result = await response.json();
+                if (result.status === 'success') {
+                    alert("Заказ оформлен!");
+                    tg.close();
+                } else {
+                    alert("Ошибка при оформлении");
+                }
+            } catch (e) {
+                alert("Ошибка соединения с сервером");
+            }
+        });
+        
+        loadProducts();
+    </script>
+</body>
+</html>
